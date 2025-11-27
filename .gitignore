@@ -1,0 +1,41 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+.env
+.pytest_cache/
+
+# Node / Frontend
+node_modules/
+dist/
+.vite/
+.next/
+coverage/
+
+# Manim outputs
+media/
+outputs/
+manim_temp/
+
+# IDE/Editor
+.vscode/
+.idea/
+
+# Logs
+*.log
+logs/
+
+# Azure/CLI
+.azure/
+
+# Temporary files
+tmp/
+temp/

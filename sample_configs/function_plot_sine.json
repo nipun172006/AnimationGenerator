@@ -1,0 +1,10 @@
+{
+  "mode": "function_plot",
+  "function_expression": "sin(x)",
+  "x_min": -6.28,
+  "x_max": 6.28,
+  "y_min": -2.0,
+  "y_max": 2.0,
+  "duration_seconds": 8,
+  "title": "Sine Wave with Maxima and Minima"
+}
