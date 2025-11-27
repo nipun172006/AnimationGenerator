@@ -38,13 +38,15 @@ def render_scatter_points(cfg: ScatterPointsConfig) -> str:
     outputs_dir = ensure_outputs_dir()
     out_dir = Path(outputs_dir, "videos")
     out_dir.mkdir(parents=True, exist_ok=True)
-    file_basename = f"scatter_points_{(cfg.title or 'points').replace(' ', '-')}.mp4"
-    file_path = out_dir / file_basename
+    safe_title = "".join(x for x in (cfg.title or 'points') if x.isalnum() or x in " -_").strip()
+    file_stem = f"scatter_points_{safe_title.replace(' ', '-')}"
+    file_path = out_dir / f"{file_stem}.mp4"
 
     # Render
     from manim import config
     config.media_dir = str(outputs_dir)
     config.video_dir = str(out_dir)
+    config.output_file = file_stem
     scene = ScatterScene()
     scene.render()
 

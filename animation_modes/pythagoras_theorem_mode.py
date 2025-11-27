@@ -43,12 +43,14 @@ def render_pythagoras(cfg: PythagorasConfig) -> str:
     outputs_dir = ensure_outputs_dir()
     out_dir = Path(outputs_dir, "videos")
     out_dir.mkdir(parents=True, exist_ok=True)
-    file_basename = f"pythagoras_{(cfg.title or 'triangle').replace(' ', '-')}.mp4"
-    file_path = out_dir / file_basename
+    safe_title = "".join(x for x in (cfg.title or 'triangle') if x.isalnum() or x in " -_").strip()
+    file_stem = f"pythagoras_{safe_title.replace(' ', '-')}"
+    file_path = out_dir / f"{file_stem}.mp4"
 
     from manim import config
     config.media_dir = str(outputs_dir)
     config.video_dir = str(out_dir)
+    config.output_file = file_stem
     scene = PythagorasScene()
     scene.render()
 

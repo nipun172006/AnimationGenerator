@@ -13,6 +13,7 @@ class VectorAdditionConfig(AnimationConfig):
     vectors: List[Vector2D]
     show_resultant: bool = True
     show_tip_to_tail: bool = True
+    duration_seconds: float = 10.0
     title: Optional[str] = None
 
 

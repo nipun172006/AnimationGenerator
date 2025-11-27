@@ -14,6 +14,10 @@ from .geometry_construction_mode import GeometryConstructionConfig, render_geome
 from .matrix_visualization_mode import MatrixVisualizationConfig, render_matrix_visualization
 from .number_line_interval_mode import NumberLineIntervalConfig, render_number_line_interval
 from .generic_explainer_mode import GenericExplainerConfig, render_generic_explainer
+from .derivative_visualization_mode import DerivativeVisualizationConfig, render_derivative_visualization
+from .integral_area_visualization_mode import IntegralAreaVisualizationConfig, render_integral_area_visualization
+from .limit_visualization_mode import LimitVisualizationConfig, render_limit_visualization
+from .manim_code_gen_mode import ManimCodeGenConfig, render_manim_code_gen
 
 # Registry mapping
 MODE_REGISTRY: Dict[str, Type[AnimationConfig]] = {
@@ -28,6 +32,10 @@ MODE_REGISTRY: Dict[str, Type[AnimationConfig]] = {
     "matrix_visualization": MatrixVisualizationConfig,
     "number_line_interval": NumberLineIntervalConfig,
     "generic_explainer": GenericExplainerConfig,
+    "derivative_visualization": DerivativeVisualizationConfig,
+    "integral_area_visualization": IntegralAreaVisualizationConfig,
+    "limit_visualization": LimitVisualizationConfig,
+    "manim_code_gen": ManimCodeGenConfig,
 }
 
 RENDERER_REGISTRY: Dict[str, Callable[[AnimationConfig], str]] = {
@@ -42,8 +50,14 @@ RENDERER_REGISTRY: Dict[str, Callable[[AnimationConfig], str]] = {
     "matrix_visualization": render_matrix_visualization,
     "number_line_interval": render_number_line_interval,
     "generic_explainer": render_generic_explainer,
+    "derivative_visualization": render_derivative_visualization,
+    "integral_area_visualization": render_integral_area_visualization,
+    "limit_visualization": render_limit_visualization,
+    "manim_code_gen": render_manim_code_gen,
 }
 
+
+from .sanitization import sanitize_config
 
 def render_animation_from_mode(mode: str, data: dict) -> str:
     """Validate config and dispatch to renderer via registry."""
@@ -51,5 +65,9 @@ def render_animation_from_mode(mode: str, data: dict) -> str:
         raise ValueError(f"Unsupported mode: {mode}")
     cfg_cls = MODE_REGISTRY[mode]
     cfg = cfg_cls(**data)
+    
+    # Sanitize configuration (clamp values, limit sizes, etc.)
+    cfg = sanitize_config(mode, cfg)
+    
     renderer = RENDERER_REGISTRY[mode]
     return renderer(cfg)

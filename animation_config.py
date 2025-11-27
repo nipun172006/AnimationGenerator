@@ -52,7 +52,19 @@ def build_function_callable(expression: str) -> Callable[[float], float]:
     if not isinstance(expression, str) or not expression.strip():
         raise ValueError("function_expression must be a non-empty string")
 
-    expr = expression.replace("^", "**").strip()
+    # 1. Replace caret with python power operator
+    expr = expression.replace("^", "**")
+    # 2. Replace non-standard minus signs
+    expr = expr.replace("−", "-")
+    # 3. Handle implicit multiplication (e.g., "2x" -> "2*x", "x(" -> "x*(", ")x" -> ")*x")
+    # Insert * between a number and a letter (e.g., 2x -> 2*x)
+    expr = re.sub(r"(\d)([a-zA-Z(])", r"\1*\2", expr)
+    # Insert * between a letter and a number (e.g., x2 is usually a variable name, but )2 -> )*2
+    expr = re.sub(r"(\))(\d)", r"\1*\2", expr)
+    # Insert * between a closing paren and an opening paren or letter (e.g., )( -> )*(, )x -> )*x
+    expr = re.sub(r"(\))([a-zA-Z(])", r"\1*\2", expr)
+    
+    expr = expr.strip()
 
     # Precompile to validate early
     code = compile(expr, filename="<function_expression>", mode="eval")
@@ -145,10 +157,77 @@ class VectorAdditionConfig(BaseModel):
     vectors: List[Vector2D] = Field(..., min_items=1, description="List of 2D vectors")
     show_resultant: bool = Field(True, description="Whether to draw resultant vector")
     show_tip_to_tail: bool = Field(True, description="Whether to animate tip-to-tail placement")
+    duration_seconds: float = Field(10.0, description="Animation duration")
     title: Optional[str] = Field("Vector Addition", description="Title shown atop the scene")
 
     @validator("mode")
     def check_mode(cls, v: str) -> str:
         if v != "vector_addition":
             raise ValueError("Unsupported mode: expected 'vector_addition'")
+        return v
+
+
+# STEP 4: Calculus mode config models
+
+class DerivativeVisualizationConfig(BaseModel):
+    mode: str = Field("derivative_visualization", description="Must be 'derivative_visualization'")
+    function_expression: str
+    x_min: float
+    x_max: float
+    x0: float
+    show_derivative_curve: bool = True
+    duration_seconds: float = 8.0
+    title: Optional[str] = None
+
+    @validator("mode")
+    def check_mode(cls, v: str) -> str:
+        if v != "derivative_visualization":
+            raise ValueError("Unsupported mode: expected 'derivative_visualization'")
+        return v
+
+
+class IntegralAreaVisualizationConfig(BaseModel):
+    mode: str = Field("integral_area_visualization", description="Must be 'integral_area_visualization'")
+    function_expression: str
+    a: float
+    b: float
+    num_rectangles: int = 20
+    method: str = "midpoint" # left, right, midpoint
+    show_exact_area_label: bool = True
+    duration_seconds: float = 10.0
+    title: Optional[str] = None
+
+    @validator("mode")
+    def check_mode(cls, v: str) -> str:
+        if v != "integral_area_visualization":
+            raise ValueError("Unsupported mode: expected 'integral_area_visualization'")
+        return v
+
+
+class LimitVisualizationConfig(BaseModel):
+    mode: str = Field("limit_visualization", description="Must be 'limit_visualization'")
+    function_expression: str
+    x_min: float
+    x_max: float
+    x0: float
+    show_left_right: bool = True
+    duration_seconds: float = 8.0
+    title: Optional[str] = None
+
+    @validator("mode")
+    def check_mode(cls, v: str) -> str:
+        if v != "limit_visualization":
+            raise ValueError("Unsupported mode: expected 'limit_visualization'")
+        return v
+
+
+class ManimCodeGenConfig(BaseModel):
+    mode: str = Field("manim_code_gen", description="Must be 'manim_code_gen'")
+    code: str = Field(..., description="Full Python code for the Manim scene")
+    title: Optional[str] = None
+
+    @validator("mode")
+    def check_mode(cls, v: str) -> str:
+        if v != "manim_code_gen":
+            raise ValueError("Unsupported mode: expected 'manim_code_gen'")
         return v

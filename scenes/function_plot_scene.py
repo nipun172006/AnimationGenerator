@@ -38,10 +38,15 @@ class FunctionPlotScene(Scene):
         graph = axes.plot(lambda x: cfg.function_callable(x), color=BLUE)
 
         # Animate: fade in title, draw axes, then draw graph over duration
-        self.play(FadeIn(title, shift=DOWN))
-        self.play(Create(axes), run_time=1.2)
+        # Distribute total duration:
+        # Title: 10%, Axes: 20%, Graph: 60%, Wait: 10%
+        t_total = max(4.0, cfg.duration_seconds)
+        t_title = t_total * 0.1
+        t_axes = t_total * 0.2
+        t_graph = t_total * 0.6
+        t_wait = t_total * 0.1
 
-        # Use most of duration for drawing the graph, keep a small tail to settle.
-        draw_time = max(0.8, cfg.duration_seconds - 1.8)
-        self.play(Create(graph), run_time=draw_time)
-        self.wait(0.6)
+        self.play(FadeIn(title, shift=DOWN), run_time=t_title)
+        self.play(Create(axes), run_time=t_axes)
+        self.play(Create(graph), run_time=t_graph)
+        self.wait(t_wait)

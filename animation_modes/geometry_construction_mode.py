@@ -29,8 +29,9 @@ def render_geometry_construction(cfg: GeometryConstructionConfig) -> str:
             self.play(FadeIn(tri), FadeIn(lines))
 
             y_offset = 3
+            from manim import UP
             for i, step in enumerate(cfg.description_steps):
-                t = Text(step).scale(0.4).to_edge(1)  # UP
+                t = Text(step).scale(0.4).to_edge(UP)
                 t.shift([0, -0.5 * i, 0])
                 self.play(FadeIn(t))
                 self.wait(0.3)
@@ -40,10 +41,12 @@ def render_geometry_construction(cfg: GeometryConstructionConfig) -> str:
     outputs_dir = ensure_outputs_dir()
     out_dir = Path(outputs_dir, "videos")
     out_dir.mkdir(parents=True, exist_ok=True)
-    file_basename = f"geometry_construction_{(cfg.title or 'construction').replace(' ', '-')}.mp4"
-    file_path = out_dir / file_basename
+    safe_title = "".join(x for x in (cfg.title or 'construction') if x.isalnum() or x in " -_").strip()
+    file_stem = f"geometry_construction_{safe_title.replace(' ', '-')}"
+    file_path = out_dir / f"{file_stem}.mp4"
     config.media_dir = str(outputs_dir)
     config.video_dir = str(out_dir)
+    config.output_file = file_stem
     scene = GeometryScene()
     scene.render()
     return str(file_path)

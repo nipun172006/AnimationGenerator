@@ -22,14 +22,17 @@ def load_json(path: Path) -> Dict[str, Any]:
 
 def render_function_plot(cfg: FunctionPlotConfig, outputs_dir: Path) -> Path:
     outputs_dir.mkdir(parents=True, exist_ok=True)
+    video_dir = outputs_dir / "videos"
+    video_dir.mkdir(parents=True, exist_ok=True)
 
     # Derive base filename from title for readability
     safe_title = slugify(cfg.title)
     base_name = f"function_plot_{safe_title}" if safe_title else "function_plot"
 
-    # Configure Manim to render directly to outputs/ with mp4 format
+    # Configure Manim to render directly to outputs/videos with mp4 format
     with tempconfig({
         "media_dir": str(outputs_dir),
+        "video_dir": str(video_dir),
         "format": "mp4",
         "disable_caching": True,
         "output_file": base_name,
@@ -37,27 +40,30 @@ def render_function_plot(cfg: FunctionPlotConfig, outputs_dir: Path) -> Path:
         scene = FunctionPlotScene(cfg)
         scene.render()
 
-    # Manim places output into outputs/videos/<module_name>/<quality>/<filename>.mp4 by default.
-    # However, with output_file set, we can return an expected target path inside outputs.
-    # We'll find the most recent mp4 matching base_name under outputs.
-    mp4_candidates = list(outputs_dir.rglob(f"{base_name}.mp4"))
+    # Manim places output into video_dir/<module_name>/<quality>/<filename>.mp4 by default if not overridden.
+    # With output_file set, it should be in video_dir or video_dir/quality.
+    # We'll search in video_dir.
+    mp4_candidates = list(video_dir.rglob(f"{base_name}.mp4"))
     if mp4_candidates:
         # Pick the most recent file
         target = max(mp4_candidates, key=lambda p: p.stat().st_mtime)
         return target
 
-    # Fallback: return outputs dir even if not found (shouldn't happen)
-    return outputs_dir / f"{base_name}.mp4"
+    # Fallback: return expected path
+    return video_dir / f"{base_name}.mp4"
 
 
 def render_vector_addition(cfg: VectorAdditionConfig, outputs_dir: Path) -> Path:
     outputs_dir.mkdir(parents=True, exist_ok=True)
+    video_dir = outputs_dir / "videos"
+    video_dir.mkdir(parents=True, exist_ok=True)
 
     safe_title = slugify(cfg.title or "vector-addition")
     base_name = f"vector_addition_{safe_title}" if safe_title else "vector_addition"
 
     with tempconfig({
         "media_dir": str(outputs_dir),
+        "video_dir": str(video_dir),
         "format": "mp4",
         "disable_caching": True,
         "output_file": base_name,
@@ -65,10 +71,10 @@ def render_vector_addition(cfg: VectorAdditionConfig, outputs_dir: Path) -> Path
         scene = VectorAdditionScene(cfg)
         scene.render()
 
-    mp4_candidates = list(outputs_dir.rglob(f"{base_name}.mp4"))
+    mp4_candidates = list(video_dir.rglob(f"{base_name}.mp4"))
     if mp4_candidates:
         return max(mp4_candidates, key=lambda p: p.stat().st_mtime)
-    return outputs_dir / f"{base_name}.mp4"
+    return video_dir / f"{base_name}.mp4"
 
 
 def main() -> None:

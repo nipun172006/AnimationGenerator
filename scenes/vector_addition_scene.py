@@ -92,8 +92,19 @@ class VectorAdditionScene(Scene):
         title = Text(cfg.title or "Vector Addition").scale(0.6)
         title.to_edge(UP, buff=0.4)
 
-        self.play(FadeIn(plane))
-        self.play(FadeIn(title, shift=DOWN))
+        # Timing
+        total_duration = getattr(cfg, "duration_seconds", 10.0)
+        t_intro = total_duration * 0.15
+        
+        num_vectors = len(cfg.vectors)
+        has_resultant = cfg.show_resultant and num_vectors >= 1
+        
+        t_resultant = total_duration * 0.15 if has_resultant else 0.0
+        t_vectors_total = max(2.0, total_duration - t_intro - t_resultant - 1.0) # 1s buffer
+        t_per_vector = t_vectors_total / max(1, num_vectors)
+
+        self.play(FadeIn(plane), run_time=t_intro/2)
+        self.play(FadeIn(title, shift=DOWN), run_time=t_intro/2)
 
         colors = [BLUE, GREEN, RED, ORANGE, PURPLE]
 
@@ -109,7 +120,7 @@ class VectorAdditionScene(Scene):
                 end_pt = plane.c2p(cur_x + vec.x, cur_y + vec.y)
                 arrow = Arrow(start=start_pt, end=end_pt, color=color)
                 arrows.append(arrow)
-                self.play(Create(arrow))
+                self.play(Create(arrow), run_time=t_per_vector * 0.7)
 
                 label_text = f"{vec.label} ({vec.x:.2f}, {vec.y:.2f})"
                 label = Text(label_text).scale(0.45)
@@ -124,7 +135,7 @@ class VectorAdditionScene(Scene):
                     direction = RIGHT
                 label.next_to(end_pt, direction=direction)
                 labels.append(label)
-                self.play(FadeIn(label))
+                self.play(FadeIn(label), run_time=t_per_vector * 0.3)
 
                 cur_x += vec.x
                 cur_y += vec.y
@@ -134,7 +145,7 @@ class VectorAdditionScene(Scene):
                 color = colors[idx % len(colors)]
                 arrow = Arrow(start=plane.c2p(0, 0), end=plane.c2p(vec.x, vec.y), color=color)
                 arrows.append(arrow)
-                self.play(Create(arrow))
+                self.play(Create(arrow), run_time=t_per_vector * 0.7)
 
                 label_text = f"{vec.label} ({vec.x:.2f}, {vec.y:.2f})"
                 label = Text(label_text).scale(0.45)
@@ -148,15 +159,15 @@ class VectorAdditionScene(Scene):
                     direction = RIGHT
                 label.next_to(arrow.get_end(), direction=direction)
                 labels.append(label)
-                self.play(FadeIn(label))
+                self.play(FadeIn(label), run_time=t_per_vector * 0.3)
 
         # Resultant vector from origin to sum of all vectors
-        if cfg.show_resultant and len(cfg.vectors) >= 1:
+        if has_resultant:
             res_x = sum(v.x for v in cfg.vectors)
             res_y = sum(v.y for v in cfg.vectors)
             resultant = Arrow(start=plane.c2p(0, 0), end=plane.c2p(res_x, res_y), color=YELLOW)
             resultant.set_stroke(width=6)
-            self.play(Create(resultant))
+            self.play(Create(resultant), run_time=t_resultant * 0.7)
 
             res_label = Text(f"resultant ({res_x:.2f}, {res_y:.2f})").scale(0.5)
             # Avoid overlapping the title or edges
@@ -168,6 +179,6 @@ class VectorAdditionScene(Scene):
             elif res_x < (x_min + (x_max - x_min) * 0.1):
                 direction = RIGHT
             res_label.next_to(resultant.get_end(), direction=direction)
-            self.play(FadeIn(res_label))
+            self.play(FadeIn(res_label), run_time=t_resultant * 0.3)
 
-        self.wait(0.6)
+        self.wait(1.0)

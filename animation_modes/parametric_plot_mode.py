@@ -17,43 +17,75 @@ class ParametricPlotConfig(AnimationConfig):
 
 
 def render_parametric_plot(cfg: ParametricPlotConfig) -> str:
-    from manim import Scene, Axes, MathTex, VMobject, config
+    from manim import Scene, Axes, ParametricFunction, MathTex, Create, Write, config, UP, YELLOW, WHITE
     import math
+    import numpy as np
 
     class ParametricScene(Scene):
         def construct(self):
-            axes = Axes(x_range=[-4, 4, 1], y_range=[-4, 4, 1], tips=False)
-            self.play(axes.create())
+            # Create axes
+            axes = Axes(
+                x_range=[-5, 5, 1],
+                y_range=[-5, 5, 1],
+                x_length=7,
+                y_length=7,
+                axis_config={"color": WHITE}
+            )
+            # Timing
+            total_duration = max(4.0, cfg.duration_seconds)
+            t_axes = total_duration * 0.2
+            t_curve = total_duration * 0.7
+            t_title = total_duration * 0.1
 
-            def param_func(t: float):
-                # VERY basic safe eval: allow t, math functions via math.
-                local = {"t": t, "math": math}
+            self.play(Create(axes), run_time=t_axes)
+
+            # Define the parametric function
+            def func(t: float):
+                # Safe context with standard math functions
+                context = {
+                    "t": t,
+                    "sin": math.sin, "cos": math.cos, "tan": math.tan,
+                    "exp": math.exp, "log": math.log, "sqrt": math.sqrt,
+                    "pi": math.pi, "e": math.e,
+                    "pow": math.pow, "abs": abs
+                }
                 try:
-                    x = eval(cfg.x_expression, {"__builtins__": {}}, local)
-                    y = eval(cfg.y_expression, {"__builtins__": {}}, local)
+                    x = eval(cfg.x_expression, {"__builtins__": {}}, context)
+                    y = eval(cfg.y_expression, {"__builtins__": {}}, context)
                 except Exception:
                     x, y = 0.0, 0.0
                 return axes.coords_to_point(float(x), float(y))
 
-            curve = VMobject()
-            n_samples = 300
-            dt = (cfg.t_max - cfg.t_min) / n_samples
-            points = [param_func(cfg.t_min + i * dt) for i in range(n_samples + 1)]
-            curve.set_points_smoothly(points)
-            self.play(curve.animate.set_color("YELLOW"))
+            # Create the curve
+            curve = ParametricFunction(
+                func,
+                t_range=[cfg.t_min, cfg.t_max],
+                color=YELLOW,
+                stroke_width=4
+            )
+            
+            self.play(Create(curve), run_time=t_curve)
+            
+            # Title
+            if cfg.title:
+                label = MathTex(cfg.title).scale(0.8).to_edge(UP)
+                self.play(Write(label), run_time=t_title)
+            
             self.wait(1)
-
-            label = MathTex(cfg.title or "Parametric Curve").scale(0.6).to_edge(1)  # UP
-            self.play(label.animate.set_color("WHITE"))
-            self.wait(0.5)
 
     outputs_dir = ensure_outputs_dir()
     out_dir = Path(outputs_dir, "videos")
     out_dir.mkdir(parents=True, exist_ok=True)
-    file_basename = f"parametric_plot_{(cfg.title or 'curve').replace(' ', '-')}.mp4"
-    file_path = out_dir / file_basename
+    
+    safe_title = "".join(x for x in (cfg.title or 'curve') if x.isalnum() or x in " -_").strip()
+    file_stem = f"parametric_{safe_title.replace(' ', '-')}"
+    file_path = out_dir / f"{file_stem}.mp4"
+    
     config.media_dir = str(outputs_dir)
     config.video_dir = str(out_dir)
+    config.output_file = file_stem
+    
     scene = ParametricScene()
     scene.render()
+    
     return str(file_path)
