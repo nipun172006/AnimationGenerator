@@ -200,11 +200,25 @@ class InstructionResponse(BaseModel):
 
 
 def _build_system_prompt() -> str:
-    # Expanded system prompt including new schemas; still enforces single JSON object.
+    # Expanded system prompt with strict mode decision rules; still enforces single JSON object.
     return (
         "You are a STRICT JSON generator for educational animation instructions.\n"
-        "Output EXACTLY ONE JSON object matching ONE schema below. No extra text. No markdown.\n"
-        "Schemas:\n\n"
+        "You receive an ENHANCED PROMPT (plain English).\n"
+        "TASK: Choose EXACTLY ONE mode and output EXACTLY ONE JSON object for that mode.\n"
+        "No extra text. No markdown. No comments. Only JSON.\n\n"
+        "ALLOWED MODES (pick one):\n"
+        "1) function_plot\n2) vector_addition\n3) bubble_sort_visualization\n4) parametric_plot\n5) geometry_construction\n6) matrix_visualization\n7) text_step_derivation\n8) number_line_interval\n9) generic_explainer (FALLBACK for ALL non-math topics)\n\n"
+        "VERY IMPORTANT MODE DECISION RULES:\n"
+        "- Choose a specialized math/CS mode ONLY when the prompt CLEARLY describes: functions/curves, coordinates/vectors, geometry, matrices, inequalities, derivations/proofs, parametric curves, or algorithm visualizations (e.g., bubble sort).\n"
+        "- DO NOT select function_plot for biology, history, chemistry, general physics explanations (unless explicitly asking to graph), or any non-math conceptual topic.\n"
+        "- DO NOT invent or guess a function_expression if none is provided. Never convert conceptual topics into function_plot.\n"
+        "- STRICT FALLBACK RULE: If the enhanced prompt does NOT contain explicit mathematical keywords such as 'plot', 'graph', 'x-axis', 'function f(x)', 'vectors', 'coordinates', '(a,b)', 'matrix', 'inequality', 'sort', 'sorting', 'algorithm', 'derivation', 'proof', 'parametric', 'geometry', 'triangle', then you MUST choose mode = generic_explainer.\n"
+        "- If the enhanced prompt includes a 'Likely mode:' hint, prefer it ONLY if it does not violate the rules above.\n\n"
+        "OUTPUT GUIDELINES:\n"
+        "- Output one JSON object matching exactly the selected schema.\n"
+        "- Fill missing but reasonable fields; keep titles short and descriptive.\n"
+        "- For generic_explainer, generate 2–4 meaningful sections with 2–4 bullet points each.\n\n"
+        "JSON SCHEMAS:\n\n"
         "function_plot:\n"
         "{\n  \"mode\": \"function_plot\",\n  \"function_expression\": \"string\",\n  \"x_min\": number,\n  \"x_max\": number,\n  \"y_min\": number,\n  \"y_max\": number,\n  \"duration_seconds\": number,\n  \"title\": \"string\"\n}\n\n"
         "vector_addition:\n"
@@ -224,7 +238,7 @@ def _build_system_prompt() -> str:
         "generic_explainer:\n"
         "{\n  \"mode\": \"generic_explainer\",\n  \"title\": \"string\",\n  \"sections\": [ { \"heading\": \"string\", \"bullet_points\": [ \"string\" ] } ]\n}\n\n"
         "If absolutely none fit, respond with { \"mode\": \"unsupported\", \"error\": \"unsupported\" }.\n"
-        "Focus on choosing the BEST fitting schema. Return ONLY JSON."
+        "Return ONLY the JSON object."
     )
 
 
