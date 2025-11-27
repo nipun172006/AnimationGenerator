@@ -9,6 +9,11 @@ from .scatter_points_mode import ScatterPointsConfig, render_scatter_points
 from .bubble_sort_visualization_mode import BubbleSortConfig, render_bubble_sort
 from .pythagoras_theorem_mode import PythagorasConfig, render_pythagoras
 from .text_step_derivation_mode import TextStepDerivationConfig, render_text_step_derivation
+from .parametric_plot_mode import ParametricPlotConfig, render_parametric_plot
+from .geometry_construction_mode import GeometryConstructionConfig, render_geometry_construction
+from .matrix_visualization_mode import MatrixVisualizationConfig, render_matrix_visualization
+from .number_line_interval_mode import NumberLineIntervalConfig, render_number_line_interval
+from .generic_explainer_mode import GenericExplainerConfig, render_generic_explainer
 
 # Registry mapping
 MODE_REGISTRY: Dict[str, Type[AnimationConfig]] = {
@@ -18,6 +23,11 @@ MODE_REGISTRY: Dict[str, Type[AnimationConfig]] = {
     "bubble_sort_visualization": BubbleSortConfig,
     "pythagoras_theorem": PythagorasConfig,
     "text_step_derivation": TextStepDerivationConfig,
+    "parametric_plot": ParametricPlotConfig,
+    "geometry_construction": GeometryConstructionConfig,
+    "matrix_visualization": MatrixVisualizationConfig,
+    "number_line_interval": NumberLineIntervalConfig,
+    "generic_explainer": GenericExplainerConfig,
 }
 
 RENDERER_REGISTRY: Dict[str, Callable[[AnimationConfig], str]] = {
@@ -27,6 +37,11 @@ RENDERER_REGISTRY: Dict[str, Callable[[AnimationConfig], str]] = {
     "bubble_sort_visualization": render_bubble_sort,
     "pythagoras_theorem": render_pythagoras,
     "text_step_derivation": render_text_step_derivation,
+    "parametric_plot": render_parametric_plot,
+    "geometry_construction": render_geometry_construction,
+    "matrix_visualization": render_matrix_visualization,
+    "number_line_interval": render_number_line_interval,
+    "generic_explainer": render_generic_explainer,
 }
 
 

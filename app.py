@@ -200,41 +200,31 @@ class InstructionResponse(BaseModel):
 
 
 def _build_system_prompt() -> str:
-    # System-style instructions to force STRICT JSON output
+    # Expanded system prompt including new schemas; still enforces single JSON object.
     return (
-        "You are a STRICT JSON generator for math animation instructions.\n"
-        "You MUST output ONLY one JSON object and nothing else.\n"
-        "No prose, no markdown, no explanations.\n"
-        "You may output JSON in exactly ONE of these schemas:\n\n"
-        "Schema A (function_plot):\n"
-        "{\n"
-        "  \"mode\": \"function_plot\",\n"
-        "  \"function_expression\": \"string\",\n"
-        "  \"x_min\": number,\n"
-        "  \"x_max\": number,\n"
-        "  \"y_min\": number,\n"
-        "  \"y_max\": number,\n"
-        "  \"duration_seconds\": number,\n"
-        "  \"title\": \"string\"\n"
-        "}\n\n"
-        "Schema B (vector_addition):\n"
-        "{\n"
-        "  \"mode\": \"vector_addition\",\n"
-        "  \"vectors\": [ { \"label\": \"string\", \"x\": number, \"y\": number } ],\n"
-        "  \"show_resultant\": boolean,\n"
-        "  \"show_tip_to_tail\": boolean,\n"
-        "  \"title\": \"string\"\n"
-        "}\n\n"
-        "Schema C (bubble_sort_visualization):\n"
-        "{\n"
-        "  \"mode\": \"bubble_sort_visualization\",\n"
-        "  \"array\": [ number ],\n"
-        "  \"duration_seconds\": number,\n"
-        "  \"title\": \"string\"\n"
-        "}\n\n"
-        "If the input prompt cannot be mapped to these, respond with:\n"
-        "{ \"mode\": \"unsupported\", \"error\": \"unsupported\" }\n"
-        "Return ONLY the JSON object."
+        "You are a STRICT JSON generator for educational animation instructions.\n"
+        "Output EXACTLY ONE JSON object matching ONE schema below. No extra text. No markdown.\n"
+        "Schemas:\n\n"
+        "function_plot:\n"
+        "{\n  \"mode\": \"function_plot\",\n  \"function_expression\": \"string\",\n  \"x_min\": number,\n  \"x_max\": number,\n  \"y_min\": number,\n  \"y_max\": number,\n  \"duration_seconds\": number,\n  \"title\": \"string\"\n}\n\n"
+        "vector_addition:\n"
+        "{\n  \"mode\": \"vector_addition\",\n  \"vectors\": [ { \"label\": \"string\", \"x\": number, \"y\": number } ],\n  \"show_resultant\": boolean,\n  \"show_tip_to_tail\": boolean,\n  \"title\": \"string\"\n}\n\n"
+        "bubble_sort_visualization:\n"
+        "{\n  \"mode\": \"bubble_sort_visualization\",\n  \"array\": [ number ],\n  \"duration_seconds\": number,\n  \"title\": \"string\"\n}\n\n"
+        "parametric_plot:\n"
+        "{\n  \"mode\": \"parametric_plot\",\n  \"x_expression\": \"string\",\n  \"y_expression\": \"string\",\n  \"t_min\": number,\n  \"t_max\": number,\n  \"duration_seconds\": number,\n  \"title\": \"string\"\n}\n\n"
+        "geometry_construction:\n"
+        "{\n  \"mode\": \"geometry_construction\",\n  \"description_steps\": [ \"string\" ],\n  \"title\": \"string\"\n}\n\n"
+        "matrix_visualization:\n"
+        "{\n  \"mode\": \"matrix_visualization\",\n  \"matrix\": [ [ number ] ],\n  \"highlight\": \"row|column\",\n  \"index\": number,\n  \"title\": \"string\"\n}\n\n"
+        "text_step_derivation:\n"
+        "{\n  \"mode\": \"text_step_derivation\",\n  \"steps\": [ \"string\" ],\n  \"title\": \"string\"\n}\n\n"
+        "number_line_interval:\n"
+        "{\n  \"mode\": \"number_line_interval\",\n  \"interval_type\": \"<|>|<=|>=\",\n  \"value\": number,\n  \"title\": \"string\"\n}\n\n"
+        "generic_explainer:\n"
+        "{\n  \"mode\": \"generic_explainer\",\n  \"title\": \"string\",\n  \"sections\": [ { \"heading\": \"string\", \"bullet_points\": [ \"string\" ] } ]\n}\n\n"
+        "If absolutely none fit, respond with { \"mode\": \"unsupported\", \"error\": \"unsupported\" }.\n"
+        "Focus on choosing the BEST fitting schema. Return ONLY JSON."
     )
 
 
@@ -453,7 +443,19 @@ async def enhance_prompt_with_llm(raw_prompt: str) -> tuple[str, str]:
 
 def validate_slm_instructions(payload: Dict[str, Any]) -> InstructionResponse:
     mode = payload.get("mode")
-    if mode not in {"function_plot", "vector_addition", "bubble_sort_visualization", "unsupported"}:
+    allowed_modes = {
+        "function_plot",
+        "vector_addition",
+        "bubble_sort_visualization",
+        "parametric_plot",
+        "geometry_construction",
+        "matrix_visualization",
+        "text_step_derivation",
+        "number_line_interval",
+        "generic_explainer",
+        "unsupported",
+    }
+    if mode not in allowed_modes:
         return InstructionResponse(status="error", message="Invalid JSON from SLM: unknown mode")
 
     if mode == "unsupported":
@@ -537,6 +539,117 @@ def validate_slm_instructions(payload: Dict[str, Any]) -> InstructionResponse:
         except Exception as exc:
             return InstructionResponse(status="error", message=f"Invalid types for bubble_sort_visualization: {exc}")
         return InstructionResponse(status="ok", mode="bubble_sort_visualization", instructions=instructions)
+
+    if mode == "parametric_plot":
+        required = ["mode", "x_expression", "y_expression", "t_min", "t_max", "duration_seconds", "title"]
+        missing = [k for k in required if k not in payload]
+        if missing:
+            return InstructionResponse(status="error", message=f"Missing keys for parametric_plot: {', '.join(missing)}")
+        try:
+            instructions = {
+                "mode": "parametric_plot",
+                "x_expression": str(payload["x_expression"]),
+                "y_expression": str(payload["y_expression"]),
+                "t_min": float(payload["t_min"]),
+                "t_max": float(payload["t_max"]),
+                "duration_seconds": float(payload["duration_seconds"]),
+                "title": str(payload["title"]),
+            }
+        except Exception as exc:
+            return InstructionResponse(status="error", message=f"Invalid types for parametric_plot: {exc}")
+        return InstructionResponse(status="ok", mode="parametric_plot", instructions=instructions)
+
+    if mode == "geometry_construction":
+        required = ["mode", "description_steps", "title"]
+        missing = [k for k in required if k not in payload]
+        if missing:
+            return InstructionResponse(status="error", message=f"Missing keys for geometry_construction: {', '.join(missing)}")
+        steps = payload.get("description_steps")
+        if not isinstance(steps, list) or len(steps) == 0:
+            return InstructionResponse(status="error", message="'description_steps' must be a non-empty list")
+        instructions = {
+            "mode": "geometry_construction",
+            "description_steps": [str(s) for s in steps],
+            "title": str(payload["title"]),
+        }
+        return InstructionResponse(status="ok", mode="geometry_construction", instructions=instructions)
+
+    if mode == "matrix_visualization":
+        required = ["mode", "matrix", "highlight", "index", "title"]
+        missing = [k for k in required if k not in payload]
+        if missing:
+            return InstructionResponse(status="error", message=f"Missing keys for matrix_visualization: {', '.join(missing)}")
+        mat = payload.get("matrix")
+        if not isinstance(mat, list) or not mat or not all(isinstance(r, list) and r for r in mat):
+            return InstructionResponse(status="error", message="'matrix' must be a non-empty 2D list")
+        try:
+            norm = [[float(x) for x in row] for row in mat]
+            instructions = {
+                "mode": "matrix_visualization",
+                "matrix": norm,
+                "highlight": str(payload["highlight"]),
+                "index": int(payload["index"]),
+                "title": str(payload["title"]),
+            }
+        except Exception as exc:
+            return InstructionResponse(status="error", message=f"Invalid types for matrix_visualization: {exc}")
+        return InstructionResponse(status="ok", mode="matrix_visualization", instructions=instructions)
+
+    if mode == "text_step_derivation":
+        required = ["mode", "steps", "title"]
+        missing = [k for k in required if k not in payload]
+        if missing:
+            return InstructionResponse(status="error", message=f"Missing keys for text_step_derivation: {', '.join(missing)}")
+        steps = payload.get("steps")
+        if not isinstance(steps, list) or len(steps) == 0:
+            return InstructionResponse(status="error", message="'steps' must be a non-empty list")
+        instructions = {
+            "mode": "text_step_derivation",
+            "steps": [str(s) for s in steps],
+            "title": str(payload["title"]),
+        }
+        return InstructionResponse(status="ok", mode="text_step_derivation", instructions=instructions)
+
+    if mode == "number_line_interval":
+        required = ["mode", "interval_type", "value", "title"]
+        missing = [k for k in required if k not in payload]
+        if missing:
+            return InstructionResponse(status="error", message=f"Missing keys for number_line_interval: {', '.join(missing)}")
+        try:
+            instructions = {
+                "mode": "number_line_interval",
+                "interval_type": str(payload["interval_type"]),
+                "value": float(payload["value"]),
+                "title": str(payload["title"]),
+            }
+        except Exception as exc:
+            return InstructionResponse(status="error", message=f"Invalid types for number_line_interval: {exc}")
+        return InstructionResponse(status="ok", mode="number_line_interval", instructions=instructions)
+
+    if mode == "generic_explainer":
+        required = ["mode", "title", "sections"]
+        missing = [k for k in required if k not in payload]
+        if missing:
+            return InstructionResponse(status="error", message=f"Missing keys for generic_explainer: {', '.join(missing)}")
+        sections = payload.get("sections")
+        if not isinstance(sections, list) or len(sections) == 0:
+            return InstructionResponse(status="error", message="'sections' must be a non-empty list")
+        norm_sections: List[Dict[str, Any]] = []
+        try:
+            for sec in sections:
+                heading = str(sec.get("heading"))
+                bullets = sec.get("bullet_points", [])
+                if not heading or not isinstance(bullets, list):
+                    continue
+                norm_sections.append({"heading": heading, "bullet_points": [str(b) for b in bullets]})
+            instructions = {
+                "mode": "generic_explainer",
+                "title": str(payload["title"]),
+                "sections": norm_sections,
+            }
+        except Exception as exc:
+            return InstructionResponse(status="error", message=f"Invalid types for generic_explainer: {exc}")
+        return InstructionResponse(status="ok", mode="generic_explainer", instructions=instructions)
 
     # Fallback (should not reach)
     return InstructionResponse(status="error", message="Invalid JSON from SLM")
