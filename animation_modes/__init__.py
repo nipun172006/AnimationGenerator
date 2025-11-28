@@ -18,6 +18,7 @@ from .derivative_visualization_mode import DerivativeVisualizationConfig, render
 from .integral_area_visualization_mode import IntegralAreaVisualizationConfig, render_integral_area_visualization
 from .limit_visualization_mode import LimitVisualizationConfig, render_limit_visualization
 from .manim_code_gen_mode import ManimCodeGenConfig, render_manim_code_gen
+from .matrix_mult_detailed_mode import MatrixMultDetailedConfig, render_matrix_mult_detailed
 
 # Registry mapping
 MODE_REGISTRY: Dict[str, Type[AnimationConfig]] = {
@@ -36,6 +37,7 @@ MODE_REGISTRY: Dict[str, Type[AnimationConfig]] = {
     "integral_area_visualization": IntegralAreaVisualizationConfig,
     "limit_visualization": LimitVisualizationConfig,
     "manim_code_gen": ManimCodeGenConfig,
+    "matrix_mult_detailed": MatrixMultDetailedConfig,
 }
 
 RENDERER_REGISTRY: Dict[str, Callable[[AnimationConfig], str]] = {
@@ -54,6 +56,7 @@ RENDERER_REGISTRY: Dict[str, Callable[[AnimationConfig], str]] = {
     "integral_area_visualization": render_integral_area_visualization,
     "limit_visualization": render_limit_visualization,
     "manim_code_gen": render_manim_code_gen,
+    "matrix_mult_detailed": render_matrix_mult_detailed,
 }
 
 

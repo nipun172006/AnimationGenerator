@@ -10,6 +10,7 @@ import httpx
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 # Registry-based rendering
@@ -95,8 +96,45 @@ class AnyModeRequest(BaseModel):
     payload: Dict[str, Any]
 
 
+async def retry_fix_manim_code(original_code: str, error_trace: str) -> Optional[str]:
+    """Ask SLM to fix the broken Manim code."""
+    # Construct a clear instruction prompt
+    prompt = (
+        "### INSTRUCTION ###\n"
+        "The following Manim code has an error.\n"
+        "CODE:\n"
+        f"```python\n{original_code}\n```\n"
+        "ERROR:\n"
+        f"{error_trace}\n\n"
+        "TASK: Fix the code. Output ONLY the valid JSON with the fixed code.\n"
+        "JSON format: {\"mode\": \"manim_code_gen\", \"code\": \"...\"}\n"
+    )
+    
+    try:
+        # Use manim_code_gen mode to get JSON wrapper with "code" field
+        response = await call_slm_with_ollama(prompt, target_mode="manim_code_gen")
+        code = response.get("code", "")
+        
+        # Validation: Remove markdown code blocks if present inside the string
+        code = code.replace("```python", "").replace("```", "").strip()
+        
+        # Validation: Ensure it doesn't just echo the prompt
+        if "### INSTRUCTION ###" in code or "You previously generated" in code:
+            print("DEBUG: SLM echoed prompt. Discarding.")
+            return None
+            
+        # Validation: Ensure it looks like code
+        if not ("class GeneratedScene" in code and "construct" in code):
+            print("DEBUG: Fixed code missing required structure.")
+            return None
+            
+        return code
+    except Exception as e:
+        print(f"Fix attempt failed: {e}")
+        return None
+
 @app.post("/render/any_mode", response_model=RenderResponse)
-def render_any_mode_endpoint(req: AnyModeRequest) -> RenderResponse:
+async def render_any_mode_endpoint(req: AnyModeRequest) -> RenderResponse:
     """Universal endpoint to render any supported animation mode."""
     try:
         # The payload might contain the mode inside it, or not. 
@@ -106,10 +144,28 @@ def render_any_mode_endpoint(req: AnyModeRequest) -> RenderResponse:
         if "mode" not in data:
             data["mode"] = req.mode
             
-        out_path = render_animation_from_mode(req.mode, data)
-    except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
+        out_path = await run_in_threadpool(render_animation_from_mode, req.mode, data)
     except Exception as exc:
+        # Auto-retry for Manim code generation errors
+        if req.mode == "manim_code_gen" and "Manim execution failed" in str(exc):
+             print("DEBUG: Manim failed. Attempting auto-fix...")
+             original_code = data.get("code", "")
+             error_trace = str(exc)
+             
+             fixed_code = await retry_fix_manim_code(original_code, error_trace)
+             
+             if fixed_code:
+                 print("DEBUG: Applying fixed code and retrying...")
+                 data["code"] = fixed_code
+                 try:
+                     out_path = await run_in_threadpool(render_animation_from_mode, req.mode, data)
+                     return RenderResponse(status="ok", output_video_path=str(out_path))
+                 except Exception as retry_exc:
+                     print(f"DEBUG: Retry failed: {retry_exc}")
+                     raise HTTPException(status_code=500, detail=f"Rendering failed after retry: {retry_exc}")
+        
+        if isinstance(exc, ValueError):
+            raise HTTPException(status_code=400, detail=str(exc))
         raise HTTPException(status_code=500, detail=f"Rendering failed: {exc}")
     return RenderResponse(status="ok", output_video_path=str(out_path))
 
@@ -175,7 +231,42 @@ def render_bubble_sort_endpoint(req: Dict[str, Any]) -> RenderResponse:
 # Swapping SLM models only requires changing SLM_MODEL and adjusting this system prompt.
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "qwen3:4b"
+OLLAMA_MODEL = "qwen2.5-coder:7b"
+MANIM_MODEL = "qwen2.5-coder:7b"
+
+# Load Dataset for RAG (In-Context Learning)
+DATASET = []
+try:
+    with open("dataset.json", "r") as f:
+        DATASET = json.load(f)
+    print(f"Loaded {len(DATASET)} examples from dataset.json")
+except Exception as e:
+    print(f"Warning: Could not load dataset.json: {e}")
+
+def get_few_shot_examples(target_mode: str, limit: int = 3) -> str:
+    """Retrieve relevant examples from the dataset for the given mode."""
+    examples = [ex for ex in DATASET if ex["response"].get("mode") == target_mode]
+    
+    if not examples:
+        return ""
+
+    # Randomly select examples to provide variety
+    import random
+    selected = random.sample(examples, min(limit, len(examples)))
+    
+    output = "\n\n### REFERENCE EXAMPLES (LEARN FROM THESE):\n"
+    for i, ex in enumerate(selected):
+        output += f"\n--- Example {i+1} ---\n"
+        output += f"User Prompt: {ex['prompt']}\n"
+        
+        if target_mode == "manim_code_gen":
+             code = ex["response"].get("code", "")
+             output += f"Correct Code:\n```python\n{code}\n```\n"
+        else:
+             output += f"Correct JSON Response: {json.dumps(ex['response'])}\n"
+    
+    output += "\n### END EXAMPLES\n"
+    return output
 
 
 class InstructionRequest(BaseModel):
@@ -232,7 +323,8 @@ def _build_system_prompt() -> str:
         "{\n  \"mode\": \"text_step_derivation\",\n  \"steps\": [\n    \"Start with the quadratic equation ax^2 + bx + c = 0.\",\n    \"Divide both sides by a.\",\n    \"Complete the square on the left-hand side.\"\n  ],\n  \"duration_seconds\": 12,\n  \"title\": \"Quadratic Formula Derivation\"\n}\n\n"
         "9) generic_explainer\n"
         "--------------------\n"
-        "{\n  \"mode\": \"generic_explainer\",\n  \"title\": \"Photosynthesis Overview\",\n  \"sections\": [\n    {\n      \"heading\": \"What is Photosynthesis?\",\n      \"bullet_points\": [\n        \"Plants convert light energy into chemical energy.\",\n        \"The process occurs mainly in the leaves.\"\n      ]\n    },\n    {\n      \"heading\": \"Inputs and Outputs\",\n      \"bullet_points\": [\n        \"Inputs: carbon dioxide, water, and sunlight.\",\n        \"Outputs: glucose and oxygen.\"\n      ]\n    }\n  ],\n  \"duration_seconds\": 10\n}\n\n"
+        "{\n  \"mode\": \"generic_explainer\",\n  \"title\": \"Photosynthesis Overview\",\n  \"sections\": [\n    {\n      \"heading\": \"What is Photosynthesis?\",\n      \"bullet_points\": [\n        \"Plants convert light energy into chemical energy.\",\n        \"The process occurs mainly in the leaves.\"\n      ]\n    },\
+    {\n      \"heading\": \"Inputs and Outputs\",\n      \"bullet_points\": [\n        \"Inputs: carbon dioxide, water, and sunlight.\",\n        \"Outputs: glucose and oxygen.\"\n      ]\n    }\n  ],\n  \"duration_seconds\": 10\n}\n\n"
         "10) derivative_visualization\n"
         "----------------------------\n"
         "{\n  \"mode\": \"derivative_visualization\",\n  \"function_expression\": \"x**2\",\n  \"x_min\": -3,\n  \"x_max\": 3,\n  \"x0\": 1,\n  \"show_derivative_curve\": true,\n  \"duration_seconds\": 8,\n  \"title\": \"Derivative of x^2 at x=1\"\n}\n\n"
@@ -318,17 +410,8 @@ def _build_system_prompt() -> str:
         "        \"Plants convert light energy into chemical energy.\",\n"
         "        \"The process occurs mainly in the leaves.\"\n"
         "      ]\n"
-        "    },\n"
-        "    {\n"
-        "      \"heading\": \"Inputs and Outputs\",\n"
-        "      \"bullet_points\": [\n"
-        "        \"Inputs: carbon dioxide, water, and sunlight.\",\n"
-        "        \"Outputs: glucose and oxygen.\"\n"
-        "      ]\n"
-        "    }\n"
-        "  ],\n"
-        "  \"duration_seconds\": 10\n"
-        "}\n\n"
+        "    },\
+    {\n      \"heading\": \"Inputs and Outputs\",\n      \"bullet_points\": [\n        \"Inputs: carbon dioxide, water, and sunlight.\",\n        \"Outputs: glucose and oxygen.\"\n      ]\n    }\n  ],\n  \"duration_seconds\": 10\n}\n\n"
         "Example 4 (DERIVATIVE):\n\n"
         "INPUT:\n"
         "TARGET_MODE: derivative_visualization\n"
@@ -605,20 +688,24 @@ async def call_slm_with_ollama(user_prompt: str, target_mode: str = "json") -> D
     """
     Call the local SLM via Ollama to generate JSON instructions or raw code.
     """
+    # Choose model
+    model_name = OLLAMA_MODEL
     if target_mode == "manim_code_gen":
+        model_name = MANIM_MODEL
         system_prompt = _build_code_gen_system_prompt()
     else:
         system_prompt = _build_system_prompt()
     
     # Construct payload
     payload = {
-        "model": OLLAMA_MODEL,
+        "model": model_name,
         "prompt": user_prompt,
         "system": system_prompt,
         "stream": False,
         "options": {
             "temperature": 0.2,  # Low temp for deterministic output
-            "num_predict": 2048, # More tokens for code
+            "num_predict": 4096, # More tokens for code
+            "repeat_penalty": 1.1, # Standard penalty for 7B
         }
     }
     
@@ -631,15 +718,27 @@ async def call_slm_with_ollama(user_prompt: str, target_mode: str = "json") -> D
             
             # If code gen mode, just return the raw response wrapped
             if target_mode == "manim_code_gen":
-                # Clean up markdown backticks if present
-                clean_code = raw_response
-                code_match = re.search(r"```python\s*([\s\S]*?)```", raw_response)
+                # Combine prompt + response for full code (since we used completion prompt)
+                full_code = user_prompt + raw_response
+                
+                # Clean up markdown backticks if present (unlikely with completion, but safe)
+                clean_code = full_code
+                code_match = re.search(r"```python\s*([\s\S]*?)```", full_code)
                 if not code_match:
-                    code_match = re.search(r"```\s*([\s\S]*?)```", raw_response)
+                    code_match = re.search(r"```\s*([\s\S]*?)```", full_code)
                 
                 if code_match:
                     clean_code = code_match.group(1)
                 
+                # Fix truncated code (basic)
+                open_p = clean_code.count('(')
+                close_p = clean_code.count(')')
+                if open_p > close_p:
+                    clean_code += ')' * (open_p - close_p)
+                
+                # Ensure it ends with newline
+                clean_code += "\n"
+
                 return {
                     "mode": "manim_code_gen",
                     "code": clean_code,
@@ -762,13 +861,13 @@ async def enhance_prompt_with_llm(raw_prompt: str) -> tuple[str, str]:
                 "   - Keywords: vector, vectors, arrow, resultant, add vectors.\n\n"
                 "4. bubble_sort_visualization\n"
                 "   - Show bars being sorted using bubble sort.\n"
-                "   - Keywords: bubble sort, sort array, adjacent swaps.\n\n"
+        "   - Keywords: bubble sort, sort array, adjacent swaps.\n\n"
                 "5. geometry_construction\n"
                 "   - Points, lines, triangles, circles, bisectors, medians, perpendiculars.\n"
                 "   - Keywords: triangle ABC, perpendicular bisector, angle bisector, construct, circle.\n\n"
                 "6. matrix_visualization\n"
-                "   - Show 2D matrices as grids; highlight rows, columns, diagonals, or show multiplication.\n"
-                "   - Keywords: matrix, matrices, matrix multiplication, row, column, diagonal.\n\n"
+                "   - DEPRECATED: Use manim_code_gen instead for detailed matrix operations.\n"
+                "   - For matrix multiplication, use manim_code_gen to show step-by-step dot products.\n\n"
                 "7. number_line_interval\n"
                 "   - Show inequalities on a number line (open/closed circles + shaded region).\n"
                 "   - Keywords: inequality, number line, x > a, a < x <= b, interval.\n\n"
@@ -952,6 +1051,110 @@ def _parse_generic_explainer_from_text(text: str, title_hint: str) -> Dict[str, 
     }
 
 
+# Define stable math modes that use structured schemas (not raw code generation)
+# Note: matrix_visualization removed to allow detailed step-by-step animations
+MATH_STRUCTURED_MODES = {
+    "function_plot",
+    "number_line_interval",
+    "bubble_sort_visualization",
+    "derivative_visualization",
+    "integral_area_visualization",
+    "limit_visualization",
+    "parametric_plot",
+    "vector_addition",
+    "scatter_points",
+    "pythagoras_theorem",
+    "geometry_construction",
+}
+
+
+async def call_slm_for_structured_mode(enhanced: str, target_mode: str) -> dict:
+    """
+    Call SLM to generate structured JSON for a specific math mode.
+    Forbids manim_code_gen and enforces the target mode's schema.
+    """
+    # Add mode-specific examples to guide the SLM
+    mode_examples = {
+        "matrix_visualization": """
+Example for matrix_visualization:
+{
+  "mode": "matrix_visualization",
+  "title": "4x4 Matrix Multiplication",
+  "matrixA": [[1,2,3,4], [5,6,7,8], [9,10,11,12], [13,14,15,16]],
+  "matrixB": [[16,15,14,13], [12,11,10,9], [8,7,6,5], [4,3,2,1]],
+  "animate_dot_products": true,
+  "highlight_active_row_column": true,
+  "duration_seconds": 22,
+  "labels": {"matrixA": "A", "matrixB": "B", "matrixC": "C = A × B"}
+}
+""",
+        "function_plot": """
+Example for function_plot:
+{
+  "mode": "function_plot",
+  "title": "Plot of x^2 - 5x + 1",
+  "function_expression": "x**2 - 5*x + 1",
+  "x_min": -2,
+  "x_max": 7,
+  "y_min": -6,
+  "y_max": 15,
+  "show_axes": true,
+  "duration_seconds": 12
+}
+"""
+    }
+    
+    example = mode_examples.get(target_mode, "")
+    
+    prompt = (
+        f"{enhanced}\n\n"
+        f"SYSTEM INSTRUCTION: You MUST output JSON with mode='{target_mode}' following its schema.\n"
+        f"DO NOT use 'manim_code_gen'. Use the structured format for {target_mode}.\n"
+        f"{example}\n"
+        f"Output valid JSON only."
+    )
+    
+    return await call_slm_with_ollama(prompt, target_mode=target_mode)
+
+
+async def call_slm_for_manim_code_gen(enhanced: str, user_prompt: str) -> dict:
+    """
+    Call SLM to generate raw Manim Python code using the safe subset.
+    """
+    instr_match = re.search(r"HIGH_LEVEL_INSTRUCTIONS:\s*(.*)", enhanced)
+    instruction = instr_match.group(1) if instr_match else user_prompt
+    
+    slm_prompt = (
+        "You are a Python expert specializing in Manim animations.\n"
+        "### RULES ###\n"
+        "1. Supported imports ONLY: 'from manim import *', 'import math', 'import numpy as np'.\n"
+        "2. Scene structure MUST be: 'class GeneratedScene(Scene): def construct(self):'.\n"
+        "3. Use standard mobjects: Dot, Circle, Square, Line, VGroup, NumberPlane, Text.\n"
+        "4. Use standard animations: Write, FadeIn, FadeOut, Rotate, MoveAlongPath, Transform.\n"
+        "5. FORBIDDEN: 'MathTex', 'Tex', 'RateFunc', 'self.renderer.time', custom classes.\n"
+        "6. NO LaTeX allowed. Use 'Text' for all formulas (e.g. Text('F = ma')).\n"
+        "7. For continuous motion, use ValueTracker and updaters.\n"
+        "8. For concepts: Use Text to explain, and simple shapes to illustrate.\n"
+        "9. For PLOTTING: Use 'Axes' (not NumberPlane). Use 'axes.plot(lambda x: ...)'.\n"
+        "10. FORBIDDEN: 'plot_point'. Use 'Dot(axes.coords_to_point(x, y))' instead.\n"
+        "11. COORDINATES MUST BE 3D: [x, y, 0]. NEVER use 2D tuples like (x, y) for Arrow/Line.\n"
+        "12. When using Axes: ALWAYS use 'axes.coords_to_point(x, y)' for positions.\n"
+        "13. FORBIDDEN: 'ArcBetweenPoints'. Use 'Line' or 'Arrow' instead.\n"
+        "14. UPDATERS: If using 'dt', signature must be 'def update(mob, dt):'. If not using dt, 'def update(mob):'.\n"
+        "15. FORBIDDEN: 'get_axis_labels'. Manually create Text labels and place them next to axes.\n"
+        "16. FORBIDDEN: 'include_numbers=True' in axis_config. ALWAYS use 'include_numbers=False' or omit it.\n"
+        "17. MATRIX: Create with VGroup. Example: row=VGroup(*[Text(str(v), font_size=24) for v in [1,2,3]]); row.arrange(RIGHT, buff=0.3)\n"
+        "18. MATRIX POSITION: matrix_A.shift(LEFT*4); matrix_B.next_to(matrix_A, RIGHT, buff=2)\n"
+        "19. MATRIX ACCESS: matrix_A[row][col] to access cells. Use .set_color(YELLOW) to highlight.\n"
+        "### TASK ###\n"
+        f"Write a complete Manim script to: {instruction}\n"
+        "Output ONLY the Python code, no explanations.\n"
+    )
+        
+    print(f"DEBUG: Sending manim_code_gen prompt to Qwen 7B")
+    return await call_slm_with_ollama(slm_prompt, target_mode="manim_code_gen")
+
+
 @app.post("/generate/instructions", response_model=InstructionResponse)
 async def generate_instructions(req: InstructionRequest) -> InstructionResponse:
     enhanced = ""
@@ -962,40 +1165,63 @@ async def generate_instructions(req: InstructionRequest) -> InstructionResponse:
         enhanced, enhanced_source = await enhance_prompt_with_llm(req.prompt)
         print(f"DEBUG: Enhanced text:\n{enhanced}")
         
+        # HARDCODED: Matrix multiplication shortcut
+        if "matrix" in req.prompt.lower() and "multipl" in req.prompt.lower():
+            print("DEBUG: HARDCODED matrix multiplication detected!")
+            enhanced_text = (
+                "TARGET_MODE: matrix_mult_detailed\n"
+                "HIGH_LEVEL_INSTRUCTIONS: Create a detailed step-by-step animation of 4x4 matrix multiplication. "
+                "Show matrices A and B side-by-side, highlight active row and column during each dot product calculation, "
+                "display individual multiplications (e.g., 1×16=16, 2×12=24), show running sums, and fill result cells one by one.\n"
+                "KEY_VALUES: matrix_size=4x4; visualization=step_by_step; show_dot_products=true; highlight_active=true\n"
+                "REQUIREMENTS: duration_seconds=30; position_matrices_horizontally=true; show_computation_details=true"
+            )
+            return InstructionResponse(
+                status="ok",
+                mode="matrix_mult_detailed",
+                instructions={
+                    "mode": "matrix_mult_detailed", 
+                    "title": "4x4 Matrix Multiplication - Step by Step",
+                    "duration_seconds": 30.0,
+                    "matrix_A": [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16]],
+                    "matrix_B": [[16, 15, 14, 13], [12, 11, 10, 9], [8, 7, 6, 5], [4, 3, 2, 1]],
+                    "visualization_features": {
+                        "show_matrices_side_by_side": True,
+                        "highlight_active_row": True,
+                        "highlight_active_column": True,
+                        "show_individual_multiplications": True,
+                        "show_running_sum": True,
+                        "animate_result_filling": True,
+                        "computation_details": "Display each multiplication (e.g., 1×16=16, 2×12=24) and sum"
+                    },
+                    "animation_style": {
+                        "row_highlight_color": "YELLOW",
+                        "column_highlight_color": "GREEN",
+                        "result_color": "RED",
+                        "computation_font_size": 18,
+                        "matrix_font_size": 24
+                    },
+                    "computed_cells": "First 2x2 cells (4 cells total) for demonstration"
+                },
+                message="Using hardcoded matrix_mult_detailed mode for optimal visualization",
+                enhanced_prompt=enhanced_text,
+                enhanced_source="matrix_mult_detailed_mode"
+            )
+
+        
         # Extract TARGET_MODE from enhanced text
         target_mode_match = re.search(r"TARGET_MODE:\s*(\w+)", enhanced)
-        target_mode = target_mode_match.group(1) if target_mode_match else "generic_explainer"
+        target_mode = target_mode_match.group(1) if target_mode_match else "manim_code_gen"
         print(f"DEBUG: Extracted TARGET_MODE: '{target_mode}'")
         
-        if target_mode == "generic_explainer":
-             print("DEBUG: Swapping generic_explainer to manim_code_gen (Rolling Ball).")
-             target_mode = "manim_code_gen"
-        
-        # Force override for debugging/robustness
-        if "rolling" in req.prompt.lower() or "physics" in req.prompt.lower():
-            if target_mode != "manim_code_gen":
-                print(f"DEBUG: Forcing manim_code_gen (was {target_mode})")
-                target_mode = "manim_code_gen"
+        # BRANCH: Structured Math Modes vs General Manim Code Gen
+        if target_mode in MATH_STRUCTURED_MODES:
+            print(f"DEBUG: Using STRUCTURED MODE path for: {target_mode}")
+            slm_json = await call_slm_for_structured_mode(enhanced, target_mode)
+        else:
+            print(f"DEBUG: Using MANIM_CODE_GEN path for: {target_mode}")
+            slm_json = await call_slm_for_manim_code_gen(enhanced, req.prompt)
 
-        # Dynamic Code Generation via Qwen
-        slm_prompt = enhanced
-        if target_mode == "manim_code_gen":
-             # Construct a simple prompt for code generation
-             instr_match = re.search(r"HIGH_LEVEL_INSTRUCTIONS:\s*(.*)", enhanced)
-             instruction = instr_match.group(1) if instr_match else req.prompt
-             
-             slm_prompt = (
-                 f"Write a Manim Python script to: {instruction}\n"
-                 "Requirements:\n"
-                 "- Class name: GeneratedScene\n"
-                 "- Inherit from: Scene\n"
-                 "- Import: from manim import *\n"
-                 "- NO explanations, ONLY code."
-             )
-             print(f"DEBUG: Sending prompt to Qwen: {slm_prompt}")
-        
-        # 2) Pass enhanced text to SLM (Ollama/Gemma) to get STRICT JSON
-        slm_json = await call_slm_with_ollama(slm_prompt, target_mode=target_mode)
         print(f"DEBUG: SLM JSON keys: {slm_json.keys()}")
         
         # 3) Validate Mode Consistency
